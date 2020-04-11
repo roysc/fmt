@@ -759,6 +759,32 @@ using has_fallback_formatter =
 
 template <typename Char> struct named_arg_base;
 template <typename T, typename Char> struct named_arg;
+struct named_arg_info {};
+
+template <typename T, size_t NUM_ARGS, size_t NUM_NAMED_ARGS> struct arg_data {
+  T args[NUM_ARGS != 0 ? NUM_ARGS : 1];
+  named_arg_info named_args[NUM_NAMED_ARGS];
+  template <typename... U> arg_data(const U&... init) : args{init...} {}
+};
+
+template <typename T, size_t NUM_ARGS> struct arg_data<T, NUM_ARGS, 0> {
+  T args[NUM_ARGS != 0 ? NUM_ARGS : 1];
+  template <typename... U> arg_data(const U&... init) : args{init...} {}
+};
+
+template <typename T> struct is_named_arg : std::false_type {};
+
+template <typename T, typename Char>
+struct is_named_arg<named_arg<T, Char>> : std::true_type {};
+
+template <bool B = false> constexpr size_t count() { return B ? 1 : 0; }
+template <bool B1, bool B2, bool... Tail> constexpr size_t count() {
+  return (B1 ? 1 : 0) + count<B2, Tail...>();
+}
+
+template <typename... Args> constexpr size_t count_named_args() {
+  return count<is_named_arg<Args>::value...>();
+}
 
 enum class type {
   none_type,
@@ -1336,8 +1362,9 @@ class format_arg_store
   using value_type = conditional_t<is_packed, internal::value<Context>,
                                    basic_format_arg<Context>>;
 
-  // If the arguments are not packed, add one more element to mark the end.
-  value_type data_[num_args + (num_args == 0 ? 1 : 0)];
+  internal::arg_data<value_type, num_args,
+                     internal::count_named_args<Args...>()>
+      data_;
 
   friend class basic_format_args<Context>;
 
@@ -1535,7 +1562,7 @@ template <typename Context> class basic_format_args {
   template <typename... Args>
   basic_format_args(const format_arg_store<Context, Args...>& store)
       : desc_(store.types) {
-    set_data(store.data_);
+    set_data(store.data_.args);
   }
 
   /**
